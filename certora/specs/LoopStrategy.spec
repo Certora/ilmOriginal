@@ -17,7 +17,6 @@ methods {
 
     // Pool:
     function LoanLogic._getCollateralUSD(LoanLogic.LendingPool memory) internal returns uint256 => getState_collateralUSD();
-
 }
 
 

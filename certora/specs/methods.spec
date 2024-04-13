@@ -19,7 +19,7 @@ methods {
     function _.withdraw(uint256 amount) external => NONDET; 
     
     // Swapper
-    function _.swap(address, address, uint256, address payable) external => DISPATCHER(true);
+    function _.swap(address, address, uint256, address payable, uint256) external => DISPATCHER(true);
     function _.offsetFactor(address, address) external => CONSTANT;
     
 
