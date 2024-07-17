@@ -37,9 +37,20 @@ import {
     Step
 } from "../../src/types/DataTypes.sol";
 import { LoopStrategy, ILoopStrategy } from "../../src/LoopStrategy.sol";
-import { WrappedTokenAdapter } from
-    "../../src/swap/adapter/WrappedTokenAdapter.sol";
-import { AerodromeAdapter } from "../../src/swap/adapter/AerodromeAdapter.sol";
+import {
+    WrappedTokenAdapter,
+    IWrappedTokenAdapter
+} from "../../src/swap/adapter/WrappedTokenAdapter.sol";
+import {
+    AerodromeAdapter,
+    IAerodromeAdapter
+} from "../../src/swap/adapter/AerodromeAdapter.sol";
+import {
+    UniversalAerodromeAdapter,
+    IUniversalAerodromeAdapter
+} from "../../src/swap/adapter/UniversalAerodromeAdapter.sol";
+import { ISwapAdapter } from "../../src/interfaces/ISwapAdapter.sol";
+import { DeployHelperLib } from "./DeployHelperLib.sol";
 import "forge-std/console.sol";
 
 /// @title DeployHelper
@@ -191,31 +202,65 @@ contract DeployHelper is BaseMainnetConstants {
             initialAdmin, AERODROME_ROUTER, AERODROME_FACTORY, address(swapper)
         );
 
-        IRouter.Route[] memory routesUnderlyingtoWETH = new IRouter.Route[](1);
-        routesUnderlyingtoWETH[0] = IRouter.Route({
-            from: address(underlyingToken),
-            to: address(WETH),
-            stable: false,
-            factory: AERODROME_FACTORY
-        });
-
-        IRouter.Route[] memory routesWETHtoUnderlying = new IRouter.Route[](1);
-        routesWETHtoUnderlying[0] = IRouter.Route({
-            from: address(WETH),
-            to: address(underlyingToken),
-            stable: false,
-            factory: AERODROME_FACTORY
-        });
-
-        aerodromeAdapter.setRoutes(
-            underlyingToken, WETH, routesUnderlyingtoWETH
-        );
-        aerodromeAdapter.setRoutes(
-            WETH, underlyingToken, routesWETHtoUnderlying
+        DeployHelperLib._setAerodromeAdapterRoutes(
+            aerodromeAdapter, underlyingToken, WETH, AERODROME_FACTORY
         );
 
         _logAddress("WrappedTokenAdapter", address(wrappedTokenAdapter));
         _logAddress("AerodromeAdapter", address(aerodromeAdapter));
+    }
+
+    /// @notice deploys a wrapped token adapter and an aerodrome adapter
+    /// @param swapper Swapper contract
+    /// @param initialAdmin address of initial admin
+    /// @return wrappedTokenAdapter newly deployed wrapped token adapter
+    /// @return aerodromeAdapter newly deploy aerodrome adapter
+    function _deploySwapAdapters(Swapper swapper, address initialAdmin)
+        internal
+        returns (
+            WrappedTokenAdapter wrappedTokenAdapter,
+            AerodromeAdapter aerodromeAdapter
+        )
+    {
+        // WrappedToken Adapter
+        wrappedTokenAdapter =
+            new WrappedTokenAdapter(initialAdmin, address(swapper));
+        // UnderlyingToken <-> WETH Aerodrome Adapter
+        aerodromeAdapter = new AerodromeAdapter(
+            initialAdmin, AERODROME_ROUTER, AERODROME_FACTORY, address(swapper)
+        );
+
+        _logAddress("WrappedTokenAdapter", address(wrappedTokenAdapter));
+        _logAddress("AerodromeAdapter", address(aerodromeAdapter));
+    }
+
+    /// @notice deploys a wrapped token adapter
+    /// @param swapper Swapper contract
+    /// @param initialAdmin address of initial admin
+    /// @return wrappedTokenAdapter newly deployed wrapped token adapter
+    function _deployWrappedTokenAdapter(Swapper swapper, address initialAdmin)
+        internal
+        returns (WrappedTokenAdapter wrappedTokenAdapter)
+    {
+        // WrappedToken Adapter
+        wrappedTokenAdapter =
+            new WrappedTokenAdapter(initialAdmin, address(swapper));
+
+        _logAddress("WrappedTokenAdapter", address(wrappedTokenAdapter));
+    }
+
+    /// @notice deploys a UniversalAerodromeAdapter instance
+    /// @param initialAdmin address to be first default admin
+    /// @return adapter deployed UniversalAerodromeAdapter
+    function _deployUniversalAerodromeAdapter(address initialAdmin)
+        internal
+        returns (UniversalAerodromeAdapter adapter)
+    {
+        adapter = new UniversalAerodromeAdapter(
+            initialAdmin, UNIVERSAL_ROUTER, SWAPPER
+        );
+
+        _logAddress("UniversalAerodromeAdapter: ", address(adapter));
     }
 
     /// @dev set up the routes for swapping (wrappedToken <-> WETH)
@@ -232,40 +277,13 @@ contract DeployHelper is BaseMainnetConstants {
         AerodromeAdapter aerodromeAdapter,
         uint256 swapperOffsetFactor
     ) internal {
-        IERC20 underlyingToken = wrappedToken.underlying();
-
-        // from wrappedToken -> WETH
-        Step[] memory stepsWrappedToWETH = new Step[](2);
-        stepsWrappedToWETH[0] = Step({
-            from: IERC20(address(wrappedToken)),
-            to: underlyingToken,
-            adapter: wrappedTokenAdapter
-        });
-        stepsWrappedToWETH[1] =
-            Step({ from: underlyingToken, to: WETH, adapter: aerodromeAdapter });
-
-        // from WETH -> wrappedToken
-        Step[] memory stepsWETHtoWrapped = new Step[](2);
-        stepsWETHtoWrapped[0] =
-            Step({ from: WETH, to: underlyingToken, adapter: aerodromeAdapter });
-        stepsWETHtoWrapped[1] = Step({
-            from: underlyingToken,
-            to: IERC20(address(wrappedToken)),
-            adapter: wrappedTokenAdapter
-        });
-
-        swapper.setRoute(
-            IERC20(address(wrappedToken)), WETH, stepsWrappedToWETH
-        );
-        swapper.setOffsetFactor(
-            IERC20(address(wrappedToken)), WETH, swapperOffsetFactor
-        );
-
-        swapper.setRoute(
-            WETH, IERC20(address(wrappedToken)), stepsWETHtoWrapped
-        );
-        swapper.setOffsetFactor(
-            WETH, IERC20(address(wrappedToken)), swapperOffsetFactor
+        DeployHelperLib._setSwapperRouteBetweenWrappedAndToken(
+            swapper,
+            wrappedToken,
+            WETH,
+            ISwapAdapter(address(wrappedTokenAdapter)),
+            ISwapAdapter(address(aerodromeAdapter)),
+            swapperOffsetFactor
         );
     }
 
@@ -285,7 +303,7 @@ contract DeployHelper is BaseMainnetConstants {
         StrategyAssets memory strategyAssets = StrategyAssets({
             underlying: IERC20(config.underlyingTokenAddress),
             collateral: IERC20(address(wrappedToken)),
-            debt: WETH
+            debt: IERC20(config.debtAsset)
         });
 
         LoopStrategy strategyImplementation = new LoopStrategy();
@@ -308,9 +326,7 @@ contract DeployHelper is BaseMainnetConstants {
         );
         strategy = LoopStrategy(address(strategyProxy));
 
-        strategy.grantRole(strategy.PAUSER_ROLE(), initialAdmin);
         strategy.grantRole(strategy.MANAGER_ROLE(), initialAdmin);
-        strategy.grantRole(strategy.UPGRADER_ROLE(), initialAdmin);
 
         _logAddress("Strategy", address(strategy));
     }
@@ -320,6 +336,13 @@ contract DeployHelper is BaseMainnetConstants {
         LoopStrategy strategyImplementation = new LoopStrategy();
 
         _logAddress("Strategy Implementation", address(strategyImplementation));
+    }
+
+    /// @dev deploys a new Swapper contract implementation
+    function _deploySwapperImplementation() internal {
+        Swapper swapperImplementation = new Swapper();
+
+        _logAddress("Swapper Implementation", address(swapperImplementation));
     }
 
     /// @dev set deposit permissions to the LoopStrategy and WrappedTokenAdapter contracts
