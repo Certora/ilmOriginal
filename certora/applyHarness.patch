@@ -1,6 +1,6 @@
 diff -ruN lib/aave-v3-core/contracts/protocol/libraries/logic/BorrowLogic.sol lib/aave-v3-core/contracts/protocol/libraries/logic/BorrowLogic.sol
---- lib/aave-v3-core/contracts/protocol/libraries/logic/BorrowLogic.sol	2024-04-01 13:48:37
-+++ lib/aave-v3-core/contracts/protocol/libraries/logic/BorrowLogic.sol	2024-03-21 12:14:33
+--- lib/aave-v3-core/contracts/protocol/libraries/logic/BorrowLogic.sol	2024-07-18 16:42:58
++++ lib/aave-v3-core/contracts/protocol/libraries/logic/BorrowLogic.sol	2024-07-17 17:52:17
 @@ -132,10 +132,14 @@
  
      if (isolationModeActive) {
@@ -29,8 +29,8 @@ diff -ruN lib/aave-v3-core/contracts/protocol/libraries/logic/BorrowLogic.sol li
    }
  }
 diff -ruN lib/aave-v3-core/contracts/protocol/libraries/logic/GenericLogic.sol lib/aave-v3-core/contracts/protocol/libraries/logic/GenericLogic.sol
---- lib/aave-v3-core/contracts/protocol/libraries/logic/GenericLogic.sol	2024-04-01 13:48:37
-+++ lib/aave-v3-core/contracts/protocol/libraries/logic/GenericLogic.sol	2024-04-01 12:25:59
+--- lib/aave-v3-core/contracts/protocol/libraries/logic/GenericLogic.sol	2024-07-18 16:42:58
++++ lib/aave-v3-core/contracts/protocol/libraries/logic/GenericLogic.sol	2024-07-17 17:52:17
 @@ -135,15 +135,19 @@
  
          if (vars.ltv != 0) {
@@ -110,8 +110,8 @@ diff -ruN lib/aave-v3-core/contracts/protocol/libraries/logic/GenericLogic.sol l
 +    }
  }
 diff -ruN lib/openzeppelin-contracts-upgradeable/contracts/token/ERC20/extensions/ERC4626Upgradeable.sol lib/openzeppelin-contracts-upgradeable/contracts/token/ERC20/extensions/ERC4626Upgradeable.sol
---- lib/openzeppelin-contracts-upgradeable/contracts/token/ERC20/extensions/ERC4626Upgradeable.sol	2024-04-01 13:48:37
-+++ lib/openzeppelin-contracts-upgradeable/contracts/token/ERC20/extensions/ERC4626Upgradeable.sol	2024-03-21 12:14:33
+--- lib/openzeppelin-contracts-upgradeable/contracts/token/ERC20/extensions/ERC4626Upgradeable.sol	2024-07-18 16:42:58
++++ lib/openzeppelin-contracts-upgradeable/contracts/token/ERC20/extensions/ERC4626Upgradeable.sol	2024-07-17 17:52:17
 @@ -308,4 +308,9 @@
      function _decimalsOffset() internal view virtual returns (uint8) {
          return 0;
@@ -123,88 +123,92 @@ diff -ruN lib/openzeppelin-contracts-upgradeable/contracts/token/ERC20/extension
 +    // end of munging
  }
 diff -ruN src/libraries/LoanLogic.sol src/libraries/LoanLogic.sol
---- src/libraries/LoanLogic.sol	2024-04-01 13:48:37
-+++ src/libraries/LoanLogic.sol	2024-03-21 12:14:33
-@@ -115,7 +115,7 @@
-     ) internal pure returns (uint256 shareDebtUSD, uint256 shareEquityUSD) {
-         shareDebtUSD =
-             Math.mulDiv(state.debtUSD, shares, totalShares, Math.Rounding.Ceil);
--
-+            
-         shareEquityUSD = Math.mulDiv(
-             state.collateralUSD, shares, totalShares, Math.Rounding.Floor
-         ) - shareDebtUSD;
-@@ -218,9 +218,12 @@
-         uint256 totalBorrow = _getTotalBorrow(reserveData);
-         uint256 borrowCap = reserveData.configuration.getBorrowCap();
-         uint256 assetUnit = 10 ** reserveData.configuration.getDecimals();
--        uint256 avilableUntilBorrowCap = (borrowCap * assetUnit > totalBorrow)
--            ? borrowCap * assetUnit - totalBorrow
-+        uint256 avilableUntilBorrowCap = (mulDivDown(borrowCap, assetUnit, 1) > totalBorrow)
-+            ? mulDivDown(borrowCap, assetUnit, 1) - totalBorrow
-             : 0;
-+        //uint256 avilableUntilBorrowCap = (borrowCap * assetUnit > totalBorrow) // Munged by Certora
-+        //    ? borrowCap * assetUnit - totalBorrow // Munged by Certora
-+        //    : 0;
+--- src/libraries/LoanLogic.sol	2024-07-18 16:42:58
++++ src/libraries/LoanLogic.sol	2024-07-17 17:52:17
+@@ -221,11 +221,18 @@
  
-         uint256 availableLiquidityBase =
-             asset.balanceOf(reserveData.aTokenAddress);
-@@ -287,4 +290,9 @@
+         if (borrowCap != 0) {
+             uint256 totalBorrow = _getTotalBorrow(reserveData);
+-            uint256 borrowCapAssets =
+-                borrowCap * (10 ** IERC20Metadata(address(asset)).decimals());
++            // uint256 borrowCapAssets =
++            //     borrowCap * (10 ** IERC20Metadata(address(asset)).decimals());
+ 
+-            uint256 availableUntilBorrowCap = (borrowCapAssets > totalBorrow)
+-                ? borrowCapAssets - totalBorrow
++            // uint256 availableUntilBorrowCap = (borrowCapAssets > totalBorrow)
++            //     ? borrowCapAssets - totalBorrow
++            //     : 0;
++
++            //uint256 avilableUntilBorrowCap = (borrowCap * assetUnit > totalBorrow) // Munged by Certora
++            //    ? borrowCap * assetUnit - totalBorrow // Munged by Certora
++            //    : 0;
++            uint256 availableUntilBorrowCap = (mulDivDown(borrowCap, 10 ** IERC20Metadata(address(asset)).decimals(), 1) > totalBorrow)
++                ? mulDivDown(borrowCap, 10 ** IERC20Metadata(address(asset)).decimals(), 1) - totalBorrow
+                 : 0;
+ 
+             if (availableUntilBorrowCap < availableAssetSupply) {
+@@ -293,4 +300,8 @@
  
          sToken = IAToken(sTokenAddress);
      }
++}
 +
-+    function mulDivDown(uint256 a, uint256 b, uint256 c) internal pure returns (uint256 res) {
-+            res = a * b / c;
-+    }
-+
++function mulDivDown(uint256 a, uint256 b, uint256 c) pure returns (uint256 res) {
++        res = a * b / c;
  }
 diff -ruN src/libraries/RebalanceLogic.sol src/libraries/RebalanceLogic.sol
---- src/libraries/RebalanceLogic.sol	2024-04-01 13:48:37
-+++ src/libraries/RebalanceLogic.sol	2024-03-21 12:14:33
-@@ -392,7 +392,8 @@
-         uint256 offsetFactor =
-             $.swapper.offsetFactor($.assets.debt, $.assets.collateral);
+--- src/libraries/RebalanceLogic.sol	2024-07-18 16:42:58
++++ src/libraries/RebalanceLogic.sol	2024-07-17 17:52:17
+@@ -449,7 +449,8 @@
+             if (++count > $.maxIterations) {
+                 break;
+             }
+-        } while (_targetCR + (_targetCR * $.ratioMargin / ONE_USD) < ratio);
++        } while (_targetCR + mulDivDown(_targetCR, $.ratioMargin, ONE_USD) < ratio);
++        // } while (_targetCR + (_targetCR * $.ratioMargin / ONE_USD) < ratio);
  
--        uint256 margin = _targetCR * $.ratioMargin / ONE_USD;
-+        uint256 margin = mulDivDown(_targetCR, $.ratioMargin, ONE_USD);
-+        //uint256 margin = _targetCR * $.ratioMargin / ONE_USD; // Munged by Certora
-         uint256 count;
- 
-         do {
-@@ -492,7 +493,8 @@
+         // prevent over exposure
+         if (ratio < $.collateralRatioTargets.minForRebalance) {
+@@ -483,7 +484,8 @@
          uint256 offsetFactor =
              $.swapper.offsetFactor($.assets.collateral, $.assets.debt);
  
 -        uint256 margin = targetCR * $.ratioMargin / ONE_USD;
++        // uint256 margin = targetCR * $.ratioMargin / ONE_USD;
 +        uint256 margin = mulDivDown(targetCR, $.ratioMargin, ONE_USD);
-+        //uint256 margin = targetCR * $.ratioMargin / ONE_USD; // Munged by Certora
          uint256 count;
  
          do {
-@@ -561,7 +563,8 @@
+@@ -549,13 +551,15 @@
+             $.swapper.offsetFactor($.assets.collateral, $.assets.debt);
+ 
+         uint256 remainingDebtUSD = state.debtUSD - targetDebtUSD;
++        
+         uint256 count;
+ 
+         do {
              uint256 collateralAmountAsset = RebalanceMath
                  .calculateCollateralAsset(
                  state,
 -                remainingDebtUSD * ONE_USD / (ONE_USD - offsetFactor),
++                // remainingDebtUSD * ONE_USD / (ONE_USD - offsetFactor),
 +                mulDivDown(remainingDebtUSD, ONE_USD, (ONE_USD - offsetFactor)),
-+                //remainingDebtUSD * ONE_USD / (ONE_USD - offsetFactor), // Munged by Certora
                  collateralPriceUSD,
                  collateralDecimals
              );
-@@ -629,4 +632,9 @@
+@@ -627,4 +631,8 @@
                  || collateralRatio > collateraRatioTargets.maxForRebalance
          );
      }
++}
 +
-+    function mulDivDown(uint256 a, uint256 b, uint256 c) internal pure returns (uint256 res) {
-+            res = a * b / c;
-+    }
-+
++function mulDivDown(uint256 a, uint256 b, uint256 c) pure returns (uint256 res) {
++        res = a * b / c;
  }
 diff -ruN src/libraries/math/RebalanceMath.sol src/libraries/math/RebalanceMath.sol
---- src/libraries/math/RebalanceMath.sol	2024-04-01 13:48:37
-+++ src/libraries/math/RebalanceMath.sol	2024-03-21 12:14:33
+--- src/libraries/math/RebalanceMath.sol	2024-07-18 16:42:58
++++ src/libraries/math/RebalanceMath.sol	2024-07-17 17:52:17
 @@ -33,11 +33,16 @@
          returns (uint256 amount)
      {
